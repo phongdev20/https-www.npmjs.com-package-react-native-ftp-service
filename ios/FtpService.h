@@ -1,6 +1,19 @@
 
-#import <FtpService/RNFtpServiceSpec.h>
+#if __has_include("RCTBridgeModule.h")
+#import "RCTBridgeModule.h"
+#else
+#import <React/RCTBridgeModule.h>
+#endif
 
-@interface FtpService : NSObject <NativeFtpServiceSpec>
+
+#if __has_include("RCTEventEmitter.h")
+#import "RCTEventEmitter.h"
+#else
+#import <React/RCTEventEmitter.h>
+#endif
+
+
+@interface FtpService : RCTEventEmitter <RCTBridgeModule>
 
 @end
+  
