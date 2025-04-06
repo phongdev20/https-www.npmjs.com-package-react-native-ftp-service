@@ -31,6 +31,205 @@ NSString* const ERROR_MESSAGE_CANCELLED = @"ERROR_MESSAGE_CANCELLED";
 @implementation FTPTaskData
 @end
 
+#pragma mark - MKDirHelper
+@interface MKDirHelper : NSObject
+
+@property (nonatomic, strong) NSString *baseURL;
+@property (nonatomic, strong) NSString *username;
+@property (nonatomic, strong) NSString *password;
+@property (nonatomic, copy) RCTPromiseResolveBlock resolver;
+@property (nonatomic, copy) RCTPromiseRejectBlock rejecter;
+
+- (instancetype)initWithURL:(NSString *)url
+                   username:(NSString *)username
+                   password:(NSString *)password
+                   resolver:(RCTPromiseResolveBlock)resolver
+                   rejecter:(RCTPromiseRejectBlock)rejecter;
+
+- (void)createDirectoriesWithComponents:(NSArray<NSString *> *)components;
+
+@end
+
+@implementation MKDirHelper
+
+- (instancetype)initWithURL:(NSString *)url
+                   username:(NSString *)username
+                   password:(NSString *)password
+                   resolver:(RCTPromiseResolveBlock)resolver
+                   rejecter:(RCTPromiseRejectBlock)rejecter {
+    if (self = [super init]) {
+        _baseURL = url;
+        _username = username;
+        _password = password;
+        _resolver = resolver;
+        _rejecter = rejecter;
+    }
+    return self;
+}
+
+- (void)createDirectoriesWithComponents:(NSArray<NSString *> *)components {
+    [self createNextDirectoryWithComponents:components currentIndex:0 createdPath:@""];
+}
+
+- (void)createNextDirectoryWithComponents:(NSArray<NSString *> *)components 
+                           currentIndex:(NSUInteger)index 
+                            createdPath:(NSString *)path {
+    // Nếu đã tạo xong tất cả các thành phần thì thành công
+    if (index >= components.count) {
+        self.resolver(@YES);
+        return;
+    }
+    
+    // Tạo đường dẫn hiện tại
+    NSMutableString *currentPath = [NSMutableString stringWithString:path];
+    [currentPath appendString:components[index]];
+    [currentPath appendString:@"/"];
+    
+    // Chuẩn hóa đường dẫn
+    NSString *normalizedPath = [self encodePath:currentPath];
+    NSURL *serverURL = [[NSURL URLWithString:self.baseURL] URLByAppendingPathComponent:normalizedPath];
+    
+    if (!serverURL) {
+        self.rejecter(FTP_ERROR_CODE_MKDIR, 
+                     [NSString stringWithFormat:@"Invalid server URL with path: %@", normalizedPath], 
+                     nil);
+        return;
+    }
+    
+    NSLog(@"[FTP] Creating directory: %@", normalizedPath);
+    
+    // Tạo request
+    LxFTPRequest *request = [LxFTPRequest makeDirectoryRequest];
+    request.timeoutInterval = FTP_REQUEST_TIMEOUT;
+    request.maxRetryCount = MAX_RETRY_COUNT;
+    request.serverURL = serverURL;
+    request.username = self.username;
+    request.password = self.password;
+    
+    __block NSInteger retryCount = 0;
+    __weak MKDirHelper *weakSelf = self;
+    
+    // Định nghĩa hàm bắt đầu request
+    __block void (^startRequest)(void);
+    startRequest = ^{
+        request.successAction = ^(Class resultClass, id result) {
+            NSLog(@"[FTP] Directory created successfully: %@", currentPath);
+            // Tiếp tục với thành phần tiếp theo
+            [weakSelf createNextDirectoryWithComponents:components 
+                                          currentIndex:(index + 1) 
+                                           createdPath:currentPath];
+        };
+        
+        request.failAction = ^(CFStreamErrorDomain domain, NSInteger error, NSString *errorMessage) {
+            NSLog(@"[FTP] Failed to create directory (domain=%ld, error=%ld): %@", 
+                  (long)domain, (long)error, errorMessage);
+            
+            // Nếu thư mục đã tồn tại, tiếp tục với thành phần tiếp theo
+            if ((domain == kCFStreamErrorDomainPOSIX && error == EEXIST) || 
+                (domain == kCFStreamErrorDomainCustom && error == 550)) {
+                NSLog(@"[FTP] Directory already exists, continuing: %@", currentPath);
+                [weakSelf createNextDirectoryWithComponents:components 
+                                              currentIndex:(index + 1) 
+                                               createdPath:currentPath];
+                return;
+            }
+            
+            // Xử lý các lỗi cần thử lại
+            BOOL isRetryableError = (domain == kCFStreamErrorDomainPOSIX && 
+                                     (error == ETIMEDOUT || error == ECONNREFUSED));
+            
+            if (isRetryableError && retryCount < MAX_RETRY_COUNT) {
+                retryCount++;
+                NSLog(@"[FTP] Retrying make directory operation (attempt %ld/%d)", 
+                      (long)retryCount, MAX_RETRY_COUNT);
+                startRequest();
+                return;
+            }
+            
+            // Xử lý các lỗi khác
+            NSString *message = errorMessage ?: @"Unknown error";
+            
+            if (domain == kCFStreamErrorDomainPOSIX) {
+                switch (error) {
+                    case EACCES:
+                        message = @"Permission denied - insufficient privileges";
+                        break;
+                    case ENOENT:
+                        message = @"Parent directory does not exist";
+                        break;
+                    default:
+                        break;
+                }
+            }
+            
+            NSString *errorCode = FTP_ERROR_CODE_MKDIR;
+            NSError *nsError = [self makeErrorFromDomain:domain 
+                                               errorCode:error 
+                                           errorMessage:message];
+            weakSelf.rejecter(errorCode, message, nsError);
+        };
+        
+        BOOL started = [request start];
+        if (!started) {
+            weakSelf.rejecter(FTP_ERROR_CODE_MKDIR, @"Failed to start make directory operation", nil);
+        }
+    };
+    
+    startRequest();
+}
+
+// Triển khai lại các phương thức tiện ích cần thiết
+- (NSString *)encodePath:(NSString *)path {
+    // Xóa nhiều dấu gạch chéo liên tiếp
+    NSString *sanitized = [path stringByReplacingOccurrencesOfString:@"//" 
+                                                          withString:@"/" 
+                                                             options:NSRegularExpressionSearch 
+                                                               range:NSMakeRange(0, [path length])];
+    
+    // Cắt bỏ khoảng trắng
+    sanitized = [sanitized stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]];
+    
+    // Xóa dấu gạch chéo đầu
+    if ([sanitized hasPrefix:@"/"]) {
+        sanitized = [sanitized substringFromIndex:1];
+    }
+    
+    // Tạo một character set bao gồm các ký tự an toàn cho đường dẫn FTP
+    NSMutableCharacterSet *allowedChars = [[NSCharacterSet URLPathAllowedCharacterSet] mutableCopy];
+    // Thêm các ký tự an toàn cho đường dẫn FTP
+    NSString *additionalChars = @"[]{}()!@#$%^&*_+-=,.;'~`";
+    for (NSUInteger i = 0; i < [additionalChars length]; i++) {
+        [allowedChars addCharactersInRange:NSMakeRange([additionalChars characterAtIndex:i], 1)];
+    }
+    
+    // Mã hóa URL cho đường dẫn
+    NSString *encoded = [sanitized stringByAddingPercentEncodingWithAllowedCharacters:allowedChars];
+    
+    return encoded;
+}
+
+- (NSError *)makeErrorFromDomain:(CFStreamErrorDomain)domain 
+                       errorCode:(NSInteger)error 
+                   errorMessage:(NSString *)errorMessage {
+    NSErrorDomain nsDomain = NSCocoaErrorDomain;
+    switch (domain) {
+        case kCFStreamErrorDomainCustom:
+            nsDomain = NSCocoaErrorDomain;
+            break;
+        case kCFStreamErrorDomainPOSIX:
+            nsDomain = NSPOSIXErrorDomain;
+            break;
+        case kCFStreamErrorDomainMacOSStatus:
+            nsDomain = NSOSStatusErrorDomain;
+            break;
+    }
+    return [NSError errorWithDomain:nsDomain 
+                               code:error 
+                           userInfo:@{NSLocalizedDescriptionKey:errorMessage}];
+}
+
+@end
+
 #pragma mark - FtpService
 @implementation FtpService {
     NSString* url;
@@ -120,22 +319,43 @@ RCT_EXPORT_MODULE(FtpService)
 
 -(NSString*) makeErrorMessageWithPrefix:(NSString*) prefix domain:(CFStreamErrorDomain) domain errorCode:( NSInteger) error errorMessage:(NSString *)errorMessage
 {
-    NSString* nsDomain = @"unknown_domain";
-    switch (domain){
-        case kCFStreamErrorDomainCustom:
-            nsDomain = @"Cocoa";
-            break;
-        case kCFStreamErrorDomainPOSIX:
-        {
-            errorMessage = [NSString stringWithUTF8String:strerror((int)error)];
-            nsDomain =  @"Posix";
-            break;
+    // Trả về thông báo lỗi người dùng trực tiếp mà không bao gồm thông tin kỹ thuật phức tạp
+    if (!errorMessage || [errorMessage length] == 0) {
+        // Nếu không có thông báo lỗi, tạo thông báo dựa trên domain và mã lỗi
+        switch (domain) {
+            case kCFStreamErrorDomainCustom:
+                switch (error) {
+                    case 550:
+                        return @"Thư mục không tồn tại hoặc không có quyền truy cập";
+                    case 530:
+                        return @"Không thể đăng nhập, kiểm tra lại tên người dùng và mật khẩu";
+                    case 421:
+                        return @"Kết nối FTP không khả dụng, máy chủ đã đóng kết nối";
+                    case 425:
+                        return @"Không thể mở kết nối dữ liệu";
+                    case 426:
+                        return @"Kết nối bị đóng, quá trình bị hủy bỏ";
+                    case 450:
+                        return @"Thao tác không được thực hiện, tệp có thể đang được sử dụng";
+                    case 451:
+                        return @"Thao tác bị hủy bỏ, lỗi xử lý";
+                    case 452:
+                        return @"Thao tác không được thực hiện, không đủ dung lượng lưu trữ";
+                    default:
+                        return [NSString stringWithFormat:@"Lỗi FTP %ld", (long)error];
+                }
+                break;
+            case kCFStreamErrorDomainPOSIX:
+                return [NSString stringWithUTF8String:strerror((int)error)];
+            case kCFStreamErrorDomainMacOSStatus:
+                return [NSString stringWithFormat:@"Lỗi hệ thống %ld", (long)error];
+            default:
+                return [NSString stringWithFormat:@"Lỗi không xác định %ld", (long)error];
         }
-        case kCFStreamErrorDomainMacOSStatus:
-            nsDomain = @"OSX";
-            break;
     }
-    return [NSString stringWithFormat:@"%@ %@(%ld) %@",prefix, nsDomain,error,errorMessage];
+    
+    // Sử dụng thông báo lỗi đã cung cấp
+    return errorMessage;
 }
 
 RCT_REMAP_METHOD(setup,
@@ -189,53 +409,156 @@ RCT_REMAP_METHOD(list,
                  resolver:(RCTPromiseResolveBlock)resolve
                  rejecter:(RCTPromiseRejectBlock)reject)
 {
+    if (!self->url || self->url.length == 0) {
+        reject(FTP_ERROR_CODE_LIST, @"FTP server URL is not set. Call setup first.", nil);
+        return;
+    }
+    
+    // Validate and sanitize path
+    if (![self isValidPath:remotePath]) {
+        reject(FTP_ERROR_CODE_LIST, @"Invalid directory path", nil);
+        return;
+    }
+    
+    // Ensure proper encoding of the path
+    NSString *normalizedPath = [self encodePath:remotePath];
+    NSLog(@"[FTP] Listing directory: %@", normalizedPath);
+    
     LxFTPRequest *request = [LxFTPRequest resourceListRequest];
-    request.serverURL = [[NSURL URLWithString:self->url] URLByAppendingPathComponent:remotePath];
+    request.timeoutInterval = FTP_REQUEST_TIMEOUT;
+    request.maxRetryCount = MAX_RETRY_COUNT;
+    
+    NSURL *serverURL = [[NSURL URLWithString:self->url] URLByAppendingPathComponent:normalizedPath];
+    if (!serverURL) {
+        reject(FTP_ERROR_CODE_LIST, [NSString stringWithFormat:@"Invalid server URL with path: %@", normalizedPath], nil);
+        return;
+    }
+    request.serverURL = serverURL;
     request.username = self->user;
     request.password = self->password;
 
-    request.successAction = ^(Class resultClass, id result) {
-        NSArray *resultArray = (NSArray *)result;
-        NSMutableArray *files = [[NSMutableArray alloc] initWithCapacity:[resultArray count]];
-        for (NSDictionary* file in resultArray) {
-            NSString* name = file[(__bridge NSString *)kCFFTPResourceName];
-            NSInteger type = [file[(__bridge NSString *)kCFFTPResourceType] integerValue];
-            NSInteger size = [file[(__bridge NSString *)kCFFTPResourceSize] integerValue];
-            NSDate* timestamp = file[(__bridge NSString *)kCFFTPResourceModDate];
+    __block NSInteger retryCount = 0;
+    
+    void (^startRequest)(void) = ^{
+        request.successAction = ^(Class resultClass, id result) {
+            NSArray *resultArray = (NSArray *)result;
+            NSMutableArray *files = [[NSMutableArray alloc] initWithCapacity:[resultArray count]];
+            for (NSDictionary* file in resultArray) {
+                NSString* name = file[(__bridge NSString *)kCFFTPResourceName];
+                NSInteger type = [file[(__bridge NSString *)kCFFTPResourceType] integerValue];
+                NSInteger size = [file[(__bridge NSString *)kCFFTPResourceSize] integerValue];
+                NSDate* timestamp = file[(__bridge NSString *)kCFFTPResourceModDate];
+                
+                // Xác định loại tệp
+                NSString* fileType = [self typeStringFromType:type];
+                
+                // Kiểm tra dấu hiệu bổ sung để phát hiện thư mục
+                // 1. Nếu tên kết thúc bằng dấu / thì là thư mục
+                if ([name hasSuffix:@"/"]) {
+                    fileType = @"directory";
+                }
+                
+                // 2. Nếu kích thước là 0 và loại chưa được xác định rõ
+                if (size == 0 && [fileType isEqualToString:@"unknown"]) {
+                    // Thường thì thư mục mới tạo có kích thước 0
+                    // Đây là phỏng đoán hợp lý khi không có thông tin rõ ràng
+                    fileType = @"directory";
+                }
+                
+                // Loại bỏ dấu / cuối trong tên thư mục (nếu có)
+                if ([name hasSuffix:@"/"]) {
+                    name = [name substringToIndex:[name length] - 1];
+                }
+                
+                NSDictionary* f = @{@"name":name,@"type":fileType,@"size":@(size),@"timestamp":[self ISO8601StringFromNSDate:timestamp]};
+                [files addObject:f];
+            }
+            resolve([files copy]);
+        };
+        
+        request.failAction = ^(CFStreamErrorDomain domain, NSInteger error, NSString *errorMessage) {
+            NSLog(@"[FTP] List failed: domain=%ld, error=%ld, message=%@", (long)domain, (long)error, errorMessage);
             
-            // Xác định loại tệp
-            NSString* fileType = [self typeStringFromType:type];
+            // Xử lý cụ thể các mã lỗi FTP
+            NSString *userFriendlyMessage = errorMessage;
             
-            // Kiểm tra dấu hiệu bổ sung để phát hiện thư mục
-            // 1. Nếu tên kết thúc bằng dấu / thì là thư mục
-            if ([name hasSuffix:@"/"]) {
-                fileType = @"directory";
+            if (domain == kCFStreamErrorDomainCustom) {
+                switch (error) {
+                    case 550:
+                        userFriendlyMessage = [NSString stringWithFormat:@"Thư mục '%@' không tồn tại hoặc không có quyền truy cập", remotePath];
+                        break;
+                    case 530:
+                        userFriendlyMessage = @"Không thể đăng nhập, kiểm tra lại tên người dùng và mật khẩu";
+                        break;
+                    case 421:
+                        userFriendlyMessage = @"Kết nối FTP không khả dụng, máy chủ đã đóng kết nối";
+                        break;
+                    case 425:
+                        userFriendlyMessage = @"Không thể mở kết nối dữ liệu";
+                        break;
+                    case 426:
+                        userFriendlyMessage = @"Kết nối bị đóng, quá trình bị hủy bỏ";
+                        break;
+                    case 450:
+                        userFriendlyMessage = @"Thao tác không được thực hiện, tệp có thể đang được sử dụng";
+                        break;
+                    case 451:
+                        userFriendlyMessage = @"Thao tác bị hủy bỏ, lỗi xử lý";
+                        break;
+                    case 452:
+                        userFriendlyMessage = @"Thao tác không được thực hiện, không đủ dung lượng lưu trữ";
+                        break;
+                    default:
+                        userFriendlyMessage = [NSString stringWithFormat:@"Lỗi FTP %ld: %@", (long)error, errorMessage];
+                        break;
+                }
+            } else if (domain == kCFStreamErrorDomainPOSIX) {
+                // Xử lý lỗi POSIX phổ biến
+                switch (error) {
+                    case ETIMEDOUT:
+                        userFriendlyMessage = @"Kết nối hết thời gian chờ";
+                        break;
+                    case ECONNREFUSED:
+                        userFriendlyMessage = @"Kết nối bị từ chối, máy chủ không khả dụng";
+                        break;
+                    case ENOTCONN:
+                        userFriendlyMessage = @"Không có kết nối FTP";
+                        break;
+                    case ENETDOWN:
+                        userFriendlyMessage = @"Mạng không khả dụng";
+                        break;
+                    case ENETUNREACH:
+                        userFriendlyMessage = @"Không thể kết nối đến máy chủ, mạng không thể truy cập";
+                        break;
+                    default:
+                        userFriendlyMessage = [NSString stringWithUTF8String:strerror((int)error)];
+                        break;
+                }
             }
             
-            // 2. Nếu kích thước là 0 và loại chưa được xác định rõ
-            if (size == 0 && [fileType isEqualToString:@"unknown"]) {
-                // Thường thì thư mục mới tạo có kích thước 0
-                // Đây là phỏng đoán hợp lý khi không có thông tin rõ ràng
-                fileType = @"directory";
+            // Thử lại nếu lỗi có thể khắc phục được
+            BOOL isRetryableError = (domain == kCFStreamErrorDomainPOSIX && 
+                                    (error == ETIMEDOUT || error == ECONNREFUSED));
+            
+            if (isRetryableError && retryCount < MAX_RETRY_COUNT) {
+                retryCount++;
+                NSLog(@"[FTP] Retrying list operation (attempt %ld/%d)", (long)retryCount, MAX_RETRY_COUNT);
+                startRequest();
+                return;
             }
             
-            // Loại bỏ dấu / cuối trong tên thư mục (nếu có)
-            if ([name hasSuffix:@"/"]) {
-                name = [name substringToIndex:[name length] - 1];
-            }
-            
-            NSDictionary* f = @{@"name":name,@"type":fileType,@"size":@(size),@"timestamp":[self ISO8601StringFromNSDate:timestamp]};
-            [files addObject:f];
+            NSError* nsError = [self makeErrorFromDomain:domain errorCode:error errorMessage:userFriendlyMessage];
+            // Sử dụng thông báo lỗi thân thiện trực tiếp, không thêm tiền tố
+            reject(FTP_ERROR_CODE_LIST, userFriendlyMessage, nsError);
+        };
+        
+        BOOL started = [request start];
+        if (!started) {
+            reject(FTP_ERROR_CODE_LIST, @"Failed to start list operation", nil);
         }
-        resolve([files copy]);
     };
-    request.failAction = ^(CFStreamErrorDomain domain, NSInteger error, NSString *errorMessage) {
-        NSLog(@"domain = %ld, error = %ld, errorMessage = %@", domain, error, errorMessage); //
-        NSError* nsError = [self makeErrorFromDomain:domain errorCode:error errorMessage:errorMessage];
-        NSString* message = [self makeErrorMessageWithPrefix:@"list error" domain:domain errorCode:error errorMessage:errorMessage];
-        reject(FTP_ERROR_CODE_LIST,message,nsError);
-    };
-    [request start];
+    
+    startRequest();
 }
 
 -(NSString*) makeTokenByLocalPath:(NSString*) localPath andRemotePath:(NSString*) remotePath
@@ -680,80 +1003,29 @@ RCT_REMAP_METHOD(makeDirectory,
     NSString *normalizedPath = [self encodePath:remotePath];
     NSLog(@"[FTP] Creating directory: %@", normalizedPath);
     
-    LxFTPRequest *request = [LxFTPRequest makeDirectoryRequest];
-    request.timeoutInterval = FTP_REQUEST_TIMEOUT;
-    request.maxRetryCount = MAX_RETRY_COUNT;
+    // Extract parent directories to check if we need to create them
+    NSArray *pathComponents = [remotePath componentsSeparatedByString:@"/"];
+    pathComponents = [pathComponents filteredArrayUsingPredicate:[NSPredicate predicateWithFormat:@"length > 0"]];
     
-    NSURL *serverURL = [[NSURL URLWithString:self->url] URLByAppendingPathComponent:normalizedPath];
-    if (!serverURL) {
-        reject(FTP_ERROR_CODE_MKDIR, [NSString stringWithFormat:@"Invalid server URL with path: %@", normalizedPath], nil);
+    // If there are no path components (trying to create root), just resolve
+    if (pathComponents.count == 0) {
+        resolve(@YES);
         return;
     }
-    request.serverURL = serverURL;
-    request.username = self->user;
-    request.password = self->password;
     
-    __block NSInteger retryCount = 0;
+    // Giữ tham chiếu mạnh đến recursive block
+    __block NSMutableArray *dirsToCreate = [NSMutableArray arrayWithArray:pathComponents];
     
-    void (^startRequest)(void) = ^{
-        request.successAction = ^(Class resultClass, id result) {
-            NSLog(@"[FTP] Directory created successfully: %@", normalizedPath);
-            resolve(@(YES)); // Simple boolean to match TS interface
-        };
-        
-        request.failAction = ^(CFStreamErrorDomain domain, NSInteger error, NSString *errorMessage) {
-            NSLog(@"[FTP] Failed to create directory (domain=%ld, error=%ld): %@", (long)domain, (long)error, errorMessage);
-            
-            NSString *errorCode = FTP_ERROR_CODE_MKDIR;
-            NSString *message = errorMessage ?: @"Unknown error";
-
-            // Handle specific POSIX errors
-            if (domain == kCFStreamErrorDomainPOSIX) {
-                switch (error) {
-                    case EACCES:
-                        message = @"Permission denied - insufficient privileges";
-                        break;
-                    case EEXIST:
-                        message = @"Directory already exists";
-                        break;
-                    case ENOENT:
-                        message = @"Parent directory does not exist";
-                        break;
-                    case ETIMEDOUT:
-                        message = @"Operation timed out";
-                        break;
-                    case ECONNREFUSED:
-                        message = @"Connection refused";
-                        break;
-                    default:
-                        break;
-                }
-            }
-
-            // Retry logic for transient errors
-            BOOL isRetryableError = (domain == kCFStreamErrorDomainPOSIX && 
-                                     (error == ETIMEDOUT || error == ECONNREFUSED));
-
-            if (isRetryableError && retryCount < MAX_RETRY_COUNT) {
-                retryCount++;
-                NSLog(@"[FTP] Retrying make directory operation (attempt %ld/%d)", (long)retryCount, MAX_RETRY_COUNT);
-                startRequest();
-                return;
-            }
-            
-            NSError *nsError = [self makeErrorFromDomain:domain errorCode:error errorMessage:message];
-            reject(errorCode, message, nsError);
-        };
-        
-        BOOL started = [request start];
-        if (!started) {
-            reject(FTP_ERROR_CODE_MKDIR, @"Failed to start make directory operation", nil);
-        }
-    };
+    // Tạo một helper class để tránh retain cycles và tham chiếu yếu
+    MKDirHelper *helper = [[MKDirHelper alloc] initWithURL:self->url 
+                                                  username:self->user 
+                                                  password:self->password 
+                                                  resolver:resolve 
+                                                  rejecter:reject];
     
-    startRequest();
+    // Bắt đầu quá trình tạo thư mục đệ quy
+    [helper createDirectoriesWithComponents:dirsToCreate];
 }
-
 
 RCT_REMAP_METHOD(rename,
                  rename:(NSString*)oldPath

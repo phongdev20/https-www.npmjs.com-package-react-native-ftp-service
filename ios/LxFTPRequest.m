@@ -147,126 +147,66 @@ static NSInteger const UPLOAD_BUFFER_SIZE = 1024;
 
 - (NSString *)errorMessageOfCode:(NSInteger)code {
     switch (code) {
-        case 110:
-            return @"Restart marker reply. In this case, the text is exact and not left to the particular implementation; it must read: MARK yyyy = mmmm where yyyy is User-process data stream marker, and mmmm server's equivalent marker (note the spaces between markers and \"=\").";
-            break;
-        case 120:
-            return @"Service ready in nnn minutes.";
-            break;
-        case 125:
-            return @"Data connection already open; transfer starting.";
-            break;
+        // Success codes
         case 150:
-            return @"File status okay; about to open data connection.";
-            break;
+            return @"Đang chuẩn bị kết nối dữ liệu";
         case 200:
-            return @"Command okay.";
-            break;
-        case 202:
-            return @"Command not implemented, superfluous at this site.";
-            break;
-        case 211:
-            return @"System status, or system help reply.";
-            break;
-        case 212:
-            return @"Directory status.";
-            break;
-        case 213:
-            return @"File status.";
-            break;
-        case 214:
-            return @"Help message.On how to use the server or the meaning of a particular non-standard command. This reply is useful only to the human user.";
-            break;
-        case 215:
-            return @"NAME system type. Where NAME is an official system name from the list in the Assigned Numbers document.";
-            break;
-        case 220:
-            return @"Service ready for new user.";
-            break;
-        case 221:
-            return @"Service closing control connection.";
-            break;
-        case 225:
-            return @"Data connection open; no transfer in progress.";
-            break;
+            return @"Lệnh thành công";
         case 226:
-            return @"Closing data connection. Requested file action successful (for example, file transfer or file abort).";
-            break;
-        case 227:
-            return @"Entering Passive Mode.";
-            break;
+            return @"Hoàn tất thao tác";
         case 230:
-            return @"User logged in, proceed. Logged out if appropriate.";
-            break;
+            return @"Đăng nhập thành công";
         case 250:
-            return @"Requested file action okay, completed.";
-            break;
+            return @"Thao tác thành công";
         case 257:
-            return @"\"PATHNAME\" created.";
-            break;
+            return @"Đã tạo thư mục";
+            
+        // Client error codes
         case 331:
-            return @"User name okay, need password.";
-            break;
+            return @"Cần mật khẩu để đăng nhập";
         case 332:
-            return @"Need account for login.";
-            break;
+            return @"Cần thông tin tài khoản";
         case 350:
-            return @"Requested file action pending further information.";
-            break;
+            return @"Cần thêm thông tin";
         case 421:
-            return @"Service not available, closing control connection.This may be a reply to any command if the service knows it must shut down.";
-            break;
+            return @"Máy chủ không khả dụng, kết nối bị đóng";
         case 425:
-            return @"Can't open data connection.";
-            break;
+            return @"Không thể mở kết nối dữ liệu";
         case 426:
-            return @"Connection closed; transfer aborted.";
-            break;
+            return @"Kết nối bị đóng, truyền dữ liệu bị hủy";
         case 450:
-            return @"Requested file action not taken.";
-            break;
+            return @"Không thể thực hiện thao tác";
         case 451:
-            return @"Requested action aborted. Local error in processing.";
-            break;
+            return @"Thao tác bị hủy do lỗi xử lý";
         case 452:
-            return @"Requested action not taken. Insufficient storage space in system.File unavailable (e.g., file busy).";
-            break;
+            return @"Không đủ không gian lưu trữ";
+            
+        // Server error codes
         case 500:
-            return @"Syntax error, command unrecognized. This may include errors such as command line too long.";
-            break;
+            return @"Lỗi cú pháp lệnh";
         case 501:
-            return @"Syntax error in parameters or arguments.";
-            break;
+            return @"Lỗi tham số";
         case 502:
-            return @"Command not implemented.";
-            break;
+            return @"Lệnh không được hỗ trợ";
         case 503:
-            return @"Bad sequence of commands.";
-            break;
+            return @"Thứ tự lệnh không đúng";
         case 504:
-            return @"Command not implemented for that parameter.";
-            break;
+            return @"Tham số không được hỗ trợ";
         case 530:
-            return @"Not logged in.";
-            break;
+            return @"Chưa đăng nhập";
         case 532:
-            return @"Need account for storing files.";
-            break;
+            return @"Cần thông tin tài khoản để lưu trữ";
         case 550:
-            return @"Requested action not taken. File unavailable (e.g., file not found, no access).";
-            break;
+            return @"Thư mục hoặc tệp không tồn tại hoặc không có quyền truy cập";
         case 551:
-            return @"Requested action aborted. Page type unknown.";
-            break;
+            return @"Thao tác bị hủy, loại trang không xác định";
         case 552:
-            return @"Requested file action aborted. Exceeded storage allocation (for current directory or dataset).";
-            break;
+            return @"Thao tác bị hủy, vượt quá giới hạn lưu trữ";
         case 553:
-            return @"Requested action not taken. File name not allowed.";
-            break;
+            return @"Tên tệp không hợp lệ";
+            
         default:
-            return @"Unknown";
-            break;
+            return [NSString stringWithFormat:@"Lỗi FTP: %ld", (long)code];
     }
 }
 
@@ -833,8 +773,19 @@ void createResourceWriteStreamClientCallBack(CFWriteStreamRef stream, CFStreamEv
 
     // Set up the MKD command
     CFStringRef commandStr = CFSTR("MKD");
-    NSString *directoryName = [self.serverURL lastPathComponent];
-    CFStringRef argStr = (__bridge CFStringRef)directoryName;
+    
+    // Use the full path instead of just the last path component
+    NSString *directoryPath = self.serverURL.path;
+    // Remove leading slash if it exists
+    if ([directoryPath hasPrefix:@"/"]) {
+        directoryPath = [directoryPath substringFromIndex:1];
+    }
+    // Remove trailing slash if it exists
+    if ([directoryPath hasSuffix:@"/"]) {
+        directoryPath = [directoryPath substringToIndex:directoryPath.length - 1];
+    }
+    
+    CFStringRef argStr = (__bridge CFStringRef)directoryPath;
     
     // Create a write stream to the server (not to a specific file)
     self.writeStream = CFWriteStreamCreateWithFTPURL(kCFAllocatorDefault, (__bridge CFURLRef)self.serverURL);
@@ -888,7 +839,7 @@ void createResourceWriteStreamClientCallBack(CFWriteStreamRef stream, CFStreamEv
         return YES;
     } else {
         CFStreamError error = CFWriteStreamGetError(self.writeStream);
-        NSLog(@"Failed to open write stream: domain=%ld, error=%ld", (long)error.domain, (long)error.error);
+        NSLog(@"[FTP_ERROR] Failed to open write stream: domain=%ld, error=%ld", (long)error.domain, (long)error.error);
         return NO;
     }
 }
@@ -904,16 +855,39 @@ void makeDirectoryWriteStreamClientCallBack(CFWriteStreamRef stream, CFStreamEve
         case kCFStreamEventHasBytesAvailable: {
         } break;
         case kCFStreamEventCanAcceptBytes: {
+            // Check for FTP status using available properties
+            CFIndex statusCode = -1;
+            
+            // Try to get status code from CFStreamStatus
+            CFStreamStatus streamStatus = CFWriteStreamGetStatus(stream);
+            if (streamStatus == kCFStreamStatusError) {
+                CFStreamError error = CFWriteStreamGetError(stream);
+                NSLog(@"[FTP_ERROR] MKD failed with domain=%ld, error=%ld", (long)error.domain, (long)error.error);
+                request.failAction((CFStreamErrorDomain)error.domain, (NSInteger)error.error, [request errorMessageOfCode:error.error]);
+                [request stop];
+                return;
+            }
+            
+            // Assume success if no error at this point
             request.successAction([NSString class], request.serverURL.absoluteString);
             [request stop];
         } break;
         case kCFStreamEventErrorOccurred: {
             CFStreamError error = CFWriteStreamGetError(stream);
+            NSLog(@"[FTP_ERROR] MKD failed with domain=%ld, error=%ld", (long)error.domain, (long)error.error);
             request.failAction((CFStreamErrorDomain)error.domain, (NSInteger)error.error, [request errorMessageOfCode:error.error]);
             [request stop];
         } break;
         case kCFStreamEventEndEncountered: {
-            request.successAction([NSString class], request.serverURL.absoluteString);
+            // Since we can't reliably get the status code directly,
+            // assume success if we've reached the end of the stream without errors
+            CFStreamStatus streamStatus = CFWriteStreamGetStatus(stream);
+            if (streamStatus == kCFStreamStatusError) {
+                CFStreamError error = CFWriteStreamGetError(stream);
+                request.failAction((CFStreamErrorDomain)error.domain, (NSInteger)error.error, [request errorMessageOfCode:error.error]);
+            } else {
+                request.successAction([NSString class], request.serverURL.absoluteString);
+            }
             [request stop];
         } break;
         default:
@@ -1103,6 +1077,7 @@ void renameWriteStreamClientCallBack(CFWriteStreamRef stream, CFStreamEventType 
                 NSLog(@"[FTPREQ_DEBUG] Stream ended without explicit status code, assuming success");
                 request.successAction([NSString class], request.destinationURL.absoluteString);
             }
+            
             [request stop];
             break;
         }
