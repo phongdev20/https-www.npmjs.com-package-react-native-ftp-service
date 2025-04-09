@@ -9,6 +9,10 @@ export interface FileInfo {
 }
 
 export interface Spec extends TurboModule {
+  // Event emitter methods
+  addListener(eventName: string): void;
+  removeListeners(count: number): void;
+
   setup(
     host: string,
     port: number,

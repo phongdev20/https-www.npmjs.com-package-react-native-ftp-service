@@ -1777,11 +1777,11 @@ __metadata:
   linkType: hard
 
 "@evilmartians/lefthook@npm:^1.5.0":
-  version: 1.11.7
-  resolution: "@evilmartians/lefthook@npm:1.11.7"
+  version: 1.11.8
+  resolution: "@evilmartians/lefthook@npm:1.11.8"
   bin:
     lefthook: bin/index.js
-  checksum: cf2dff0ef406b308e0f582e2c4d406a186265c7060c57a4c14600ccefba39c672a627da98844b73ee0c2cc3bb61fb4feb8368caedb0dad31b3d63705c7f2470d
+  checksum: d5324b574ba495d0cac3a9cb07159fb876aadbcce4773c8ba9fa7b6e286825a2377c0d35e52eb453eba26414fe7a683f11ecc60de21b459e28f8c5c54a80203f
   conditions: (os=darwin | os=linux | os=win32) & (cpu=x64 | cpu=arm64 | cpu=ia32)
   languageName: node
   linkType: hard
@@ -5158,9 +5158,9 @@ __metadata:
   linkType: hard
 
 "electron-to-chromium@npm:^1.5.73":
-  version: 1.5.132
-  resolution: "electron-to-chromium@npm:1.5.132"
-  checksum: 299712fad9aa48f25c73965f76086465b2719743cf32f9826ca6b755b0207a03c3ea07af2c9d3d3fb306a79b9866494c96c7f438779dd8c88af2e64654253cf1
+  version: 1.5.134
+  resolution: "electron-to-chromium@npm:1.5.134"
+  checksum: 07e29b36c4ffa8dcdbfd089af9610e8e99617ae04ca718f355d3d057114197de33a560efbc9573d56cb427ad05f79888827b3bb4da569cbab202d31af5159dab
   languageName: node
   linkType: hard
 

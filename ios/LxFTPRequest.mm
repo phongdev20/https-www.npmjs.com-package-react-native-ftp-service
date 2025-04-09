@@ -424,7 +424,7 @@ void downloadReadStreamClientCallBack(CFReadStreamRef stream, CFStreamEventType 
         case kCFStreamEventNone: {
         } break;
         case kCFStreamEventOpenCompleted: {
-            CFNumberRef resourceSizeNumber = CFReadStreamCopyProperty(stream, kCFStreamPropertyFTPResourceSize);
+            CFNumberRef resourceSizeNumber = (CFNumberRef)CFReadStreamCopyProperty(stream, kCFStreamPropertyFTPResourceSize);
 
             if (resourceSizeNumber) {
                 long long resourceSize = 0;
@@ -535,7 +535,7 @@ void downloadReadStreamClientCallBack(CFReadStreamRef stream, CFStreamEventType 
     if (openReadStreamSuccess) {
     } else {
         CFStreamError myErr = CFReadStreamGetError(self.readStream);
-        self.failAction(myErr.domain,myErr.error,@"Open read stream failed");
+        self.failAction((CFStreamErrorDomain)myErr.domain, myErr.error, @"Open read stream failed");
         return NO;
     }
 
@@ -570,7 +570,7 @@ void downloadReadStreamClientCallBack(CFReadStreamRef stream, CFStreamEventType 
         return YES;
     } else {
         CFStreamError myErr = CFWriteStreamGetError(self.writeStream);
-        self.failAction(myErr.domain,myErr.error,@"Open write stream failed");
+        self.failAction((CFStreamErrorDomain)myErr.domain, myErr.error, @"Open write stream failed");
         return NO;
     }
 }
@@ -750,7 +750,7 @@ void createResourceWriteStreamClientCallBack(CFWriteStreamRef stream, CFStreamEv
         self.successAction([NSString class], self.serverURL.absoluteString);
         return YES;
     } else {
-        self.failAction(0, (NSInteger)errorCode, @"Unknown");
+        self.failAction((CFStreamErrorDomain)0, (NSInteger)errorCode, @"Unknown");
         return NO;
     }
 }
