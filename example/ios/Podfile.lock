@@ -4,7 +4,7 @@ PODS:
   - fast_float (6.1.4)
   - FBLazyVector (0.78.2)
   - fmt (11.0.2)
-  - FtpService (0.1.5):
+  - FtpService (0.1.0):
     - DoubleConversion
     - glog
     - hermes-engine
@@ -1620,7 +1620,7 @@ DEPENDENCIES:
   - ReactAppDependencyProvider (from `build/generated/ios`)
   - ReactCodegen (from `build/generated/ios`)
   - ReactCommon/turbomodule/core (from `../node_modules/react-native/ReactCommon`)
-  - RNFS (from `../node_modules/react-native-fs`)
+  - RNFS (from `../../node_modules/react-native-fs`)
   - Yoga (from `../node_modules/react-native/ReactCommon/yoga`)
 
 SPEC REPOS:
@@ -1762,7 +1762,7 @@ EXTERNAL SOURCES:
   ReactCommon:
     :path: "../node_modules/react-native/ReactCommon"
   RNFS:
-    :path: "../node_modules/react-native-fs"
+    :path: "../../node_modules/react-native-fs"
   Yoga:
     :path: "../node_modules/react-native/ReactCommon/yoga"
 
@@ -1772,7 +1772,7 @@ SPEC CHECKSUMS:
   fast_float: 06eeec4fe712a76acc9376682e4808b05ce978b6
   FBLazyVector: e32d34492c519a2194ec9d7f5e7a79d11b73f91c
   fmt: a40bb5bd0294ea969aaaba240a927bd33d878cdd
-  FtpService: 3a05f47716cf6427b5ee003f870846a357a8eba7
+  FtpService: 0e55aefff4dca8b39a49be3e06c0a9c84960ff54
   glog: eb93e2f488219332457c3c4eafd2738ddc7e80b8
   hermes-engine: 2771b98fb813fdc6f92edd7c9c0035ecabf9fee7
   RCT-Folly: e78785aa9ba2ed998ea4151e314036f6c49e6d82
