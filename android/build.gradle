@@ -19,7 +19,9 @@ buildscript {
 apply plugin: "com.android.library"
 apply plugin: "kotlin-android"
 
-apply plugin: "com.facebook.react"
+// Apply standard React Native plugin for Android
+// Remove Turbo support for now as we are using direct NativeModules
+// apply plugin: "com.facebook.react"
 
 def getExtOrIntegerDefault(name) {
   return rootProject.ext.has(name) ? rootProject.ext.get(name) : (project.properties["FtpService_" + name]).toInteger()
@@ -94,8 +96,9 @@ dependencies {
   implementation "commons-net:commons-net:3.9.0" 
 }
 
-react {
-  jsRootDir = file("../src/")
-  libraryName = "FtpService"
-  codegenJavaPackageName = "com.ftpservice"
-}
+// Remove Turbo Native Module registry
+// react {
+//   jsRootDir = file("../src/")
+//   libraryName = "FtpService"
+//   codegenJavaPackageName = "com.ftpservice"
+// }

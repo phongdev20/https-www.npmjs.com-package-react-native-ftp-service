@@ -22,6 +22,10 @@ class FtpServiceModule(private val reactContext: ReactApplicationContext) :
     private val uploadingTasks = HashMap<String, Thread>()
     private val downloadingTasks = HashMap<String, Thread>()
 
+    override fun getName(): String {
+        return "FtpService"
+    }
+
     companion object {
         private const val MAX_UPLOAD_COUNT = 10
         private const val MAX_DOWNLOAD_COUNT = 10
@@ -37,11 +41,12 @@ class FtpServiceModule(private val reactContext: ReactApplicationContext) :
     }
 
     @ReactMethod
-    fun setup(ipAddress: String, port: Int, username: String, password: String) {
+    fun setup(ipAddress: String, port: Int, username: String, password: String, promise: Promise) {
         this.ipAddress = ipAddress
         this.port = port
         this.username = username
         this.password = password
+        promise.resolve(true)
     }
 
     private fun login(client: FTPClient) {
@@ -403,8 +408,6 @@ class FtpServiceModule(private val reactContext: ReactApplicationContext) :
             }
         }.start()
     }
-
-    override fun getName(): String = "FtpService"
 
     // Alias cho phương thức list để tương thích với JS API
     @ReactMethod

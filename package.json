@@ -1,6 +1,6 @@
 {
   "name": "react-native-ftp-service",
-  "version": "0.1.5",
+  "version": "0.2.1",
   "description": "phong dev",
   "source": "./src/index.tsx",
   "main": "./lib/module/index.js",

@@ -27,6 +27,44 @@ yarn add react-native-ftp-service
 cd ios && pod install
 ```
 
+### 3. Cấu hình Android
+
+Đảm bảo rằng module FtpService được đăng ký trong `MainApplication.java`:
+
+```java
+package com.yourapp;
+
+import com.facebook.react.ReactApplication;
+import com.facebook.react.ReactNativeHost;
+import com.facebook.react.ReactPackage;
+import com.facebook.react.defaults.DefaultReactNativeHost;
+import com.facebook.soloader.SoLoader;
+import java.util.List;
+
+// Thêm import này
+import com.ftpservice.FtpServicePackage;
+
+public class MainApplication extends Application implements ReactApplication {
+  private final ReactNativeHost mReactNativeHost =
+      new DefaultReactNativeHost(this) {
+        @Override
+        protected List<ReactPackage> getPackages() {
+          @SuppressWarnings("UnnecessaryLocalVariable")
+          List<ReactPackage> packages = new PackageList(this).getPackages();
+
+          // Thêm dòng này để đăng ký FtpServicePackage
+          packages.add(new FtpServicePackage());
+
+          return packages;
+        }
+
+        // Còn lại của MainApplication.java
+      };
+}
+```
+
+**Lưu ý:** Nếu bạn đang sử dụng React Native CLI, có thể `react-native link` sẽ tự động thêm package này. Kiểm tra `MainApplication.java` để chắc chắn.
+
 ## Sử dụng
 
 ### 1. Kết nối FTP
